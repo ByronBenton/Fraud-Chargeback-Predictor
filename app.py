@@ -9,7 +9,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 st.set_page_config(page_title="Fraud Detection App", layout="centered")
 
 st.title("💳 Fraud Detection using Logistic Regression")
-st.write("Upload a CSV file to detect fraudulent transactions interactively.")
+st.write("Upload a CSV file to detect fraudulent transactions.")
 
 # -------------------------------
 # File Upload
@@ -51,7 +51,7 @@ if uploaded_file is not None:
         df["day_of_week"] = df["Date"].dt.dayofweek
 
         # -------------------------------
-        # Feature Selection (interactive)
+        # Feature Selection
         # -------------------------------
         st.subheader("⚙️ Select Features for Model")
         feature_options = ["Amount", "day", "month", "day_of_week"]
@@ -88,30 +88,12 @@ if uploaded_file is not None:
         model.fit(X_train, y_train)
 
         # -------------------------------
-        # Probability Threshold (interactive)
+        # Probability Threshold
         # -------------------------------
         threshold = st.slider("Fraud Probability Threshold", 0.1, 0.9, 0.5)
 
         # -------------------------------
-        # Predictions on Test Set
-        # -------------------------------
-        y_prob = model.predict_proba(X_test)[:, 1]
-        y_pred = (y_prob > threshold).astype(int)
-
-        # -------------------------------
-        # Metrics
-        # -------------------------------
-        st.subheader("📊 Model Performance (Test Set)")
-        st.write(f"Accuracy: **{accuracy_score(y_test, y_pred):.4f}**")
-        st.write(f"Precision: **{precision_score(y_test, y_pred, zero_division=0):.4f}**")
-        st.write(f"Recall: **{recall_score(y_test, y_pred, zero_division=0):.4f}**")
-        st.write(f"F1-score: **{f1_score(y_test, y_pred, zero_division=0):.4f}**")
-
-        st.write("Confusion Matrix:")
-        st.write(confusion_matrix(y_test, y_pred))
-
-        # -------------------------------
-        # Predictions on Full Dataset
+        # Predictions
         # -------------------------------
         X_scaled_full = scaler.transform(X)
         y_prob_full = model.predict_proba(X_scaled_full)[:, 1]
@@ -123,15 +105,21 @@ if uploaded_file is not None:
             "fraud_probability": y_prob_full
         })
 
+        # Add risk level for table display
+        output_df["risk_level"] = np.where(output_df["fraud_probability"] > 0.7, "High ⚠️", "Low ✅")
+
         # -------------------------------
-        # Filter Predictions (interactive)
+        # Function to highlight high-risk transactions
         # -------------------------------
-        st.subheader("🔍 Prediction Preview")
-        show_fraud_only = st.checkbox("Show only predicted frauds")
-        if show_fraud_only:
-            st.dataframe(output_df[output_df["predicted_label"] == 1].head(20))
-        else:
-            st.dataframe(output_df.head(20))
+        def highlight_high_risk(val):
+            color = 'background-color: #ffcccc' if "High" in str(val) else ''
+            return color
+
+        st.subheader("🔍 Prediction Preview (Interactive Table)")
+        st.dataframe(
+            output_df.style.applymap(highlight_high_risk, subset=["risk_level"]),
+            use_container_width=True
+        )
 
         # -------------------------------
         # Download Predictions
@@ -144,9 +132,6 @@ if uploaded_file is not None:
             file_name="fraud_predictions.csv",
             mime="text/csv"
         )
-
-
-       
 
     except Exception as e:
         st.error("❌ Error processing file. Please check CSV format.")
