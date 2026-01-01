@@ -20,7 +20,7 @@ if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
 
     st.subheader("📄 Dataset Preview")
-    st.dataframe(df.head())
+    st.dataframe(df.head(20))
 
     # --------------------------------------------------
     # Column Definitions
@@ -100,6 +100,7 @@ if uploaded_file is not None:
             "fraud_probability": y_prob
         })
 
+
         csv = output_df.to_csv(index=False).encode("utf-8")
 
         st.subheader("⬇️ Download Predictions, 0-Not Fraud, 1-Fraud")
@@ -113,3 +114,4 @@ if uploaded_file is not None:
     except Exception as e:
         st.error("❌ Error processing file. Please check CSV format.")
         st.write(e)
+
