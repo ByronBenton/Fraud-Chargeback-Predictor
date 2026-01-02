@@ -6,146 +6,185 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
+# --------------------------------------------------
+# Page Config
+# --------------------------------------------------
 st.set_page_config(page_title="Fraud Detection App", layout="centered")
 
 st.title("💳 Fraud Detection using Logistic Regression")
-st.write("Upload a CSV file to detect fraudulent transactions.")
+st.write("Detect fraudulent transactions using machine learning.")
 
 # --------------------------------------------------
-# File Upload
+# Built-in Sample Dataset (EMBEDDED)
 # --------------------------------------------------
-uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+def load_sample_data():
+    data = {
+        "Sr No": range(1, 31),
+        "Amount": [
+            1200, 5000, 300, 45000, 150, 800, 22000, 400,
+            600, 12000, 50, 900, 30000, 700, 200, 18000,
+            250, 40000, 100, 650, 17000, 500, 300, 28000,
+            90, 750, 35000, 600, 110, 16000
+        ],
+        "Date": pd.date_range(start="2023-01-01", periods=30, freq="D"),
+        "CBK": [
+            "no", "yes", "no", "yes", "no", "no", "yes", "no",
+            "no", "yes", "no", "no", "yes", "no", "no", "yes",
+            "no", "yes", "no", "no", "yes", "no", "no", "yes",
+            "no", "no", "yes", "no", "no", "yes"
+        ]
+    }
+    return pd.DataFrame(data)
 
-if uploaded_file is not None:
+# --------------------------------------------------
+# Data Source Selection
+# --------------------------------------------------
+st.subheader("📂 Data Source")
+
+data_option = st.radio(
+    "Choose data source:",
+    ["Use sample dataset", "Upload my own CSV"]
+)
+
+if data_option == "Upload my own CSV":
+    uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+
+    if uploaded_file is None:
+        st.info("Please upload a CSV file to continue.")
+        st.stop()
+
     df = pd.read_csv(uploaded_file)
 
+else:
+    df = load_sample_data()
+    st.success("Using built-in sample dataset")
+
+# --------------------------------------------------
+# Dataset Preview
+# --------------------------------------------------
+st.subheader("📄 Dataset Preview")
+rows_to_show = st.slider("Rows to preview", 5, 50, 20)
+st.dataframe(df.head(rows_to_show), use_container_width=True)
+
+# --------------------------------------------------
+# Column Definitions
+# --------------------------------------------------
+TARGET_COL = "CBK"
+ID_COL = "Sr No"
+
+try:
     # --------------------------------------------------
-    # Dataset Preview
+    # Data Cleaning & Feature Engineering
     # --------------------------------------------------
-    st.subheader("📄 Dataset Preview")
-    rows_to_show = st.slider("Rows to preview", 5, 50, 20)
-    st.dataframe(df.head(rows_to_show), use_container_width=True)
+    df[TARGET_COL] = df[TARGET_COL].str.lower()
+    df = df[df[TARGET_COL].isin(["yes", "no"])]
+    df[TARGET_COL] = df[TARGET_COL].map({"yes": 1, "no": 0})
 
-    TARGET_COL = "CBK"
-    ID_COL = "Sr No"
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+    df["Amount"].fillna(df["Amount"].median(), inplace=True)
 
-    try:
-        # --------------------------------------------------
-        # Data Cleaning & Feature Engineering
-        # --------------------------------------------------
-        df[TARGET_COL] = df[TARGET_COL].str.lower()
-        df = df[df[TARGET_COL].isin(["yes", "no"])]
-        df[TARGET_COL] = df[TARGET_COL].map({"yes": 1, "no": 0})
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df["Date"].fillna(pd.to_datetime("2020-01-01"), inplace=True)
 
-        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
-        df["Amount"].fillna(df["Amount"].median(), inplace=True)
+    df["day"] = df["Date"].dt.day
+    df["month"] = df["Date"].dt.month
+    df["day_of_week"] = df["Date"].dt.dayofweek
 
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-        df["Date"].fillna(pd.to_datetime("2020-01-01"), inplace=True)
+    X = df[["Amount", "day", "month", "day_of_week"]]
+    y = df[TARGET_COL]
+    transaction_ids = df[ID_COL]
 
-        df["day"] = df["Date"].dt.day
-        df["month"] = df["Date"].dt.month
-        df["day_of_week"] = df["Date"].dt.dayofweek
+    # --------------------------------------------------
+    # Train/Test Split
+    # --------------------------------------------------
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
 
-        X = df[["Amount", "day", "month", "day_of_week"]]
-        y = df[TARGET_COL]
-        transaction_ids = df[ID_COL]
+    # --------------------------------------------------
+    # Scaling
+    # --------------------------------------------------
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
 
-        # --------------------------------------------------
-        # Train/Test Split
-        # --------------------------------------------------
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
+    # --------------------------------------------------
+    # Train Model (CLASS WEIGHTING)
+    # --------------------------------------------------
+    model = LogisticRegression(
+        class_weight="balanced",
+        max_iter=1000
+    )
+    model.fit(X_train, y_train)
+
+    # --------------------------------------------------
+    # Evaluation
+    # --------------------------------------------------
+    y_prob_test = model.predict_proba(X_test)[:, 1]
+    y_pred_test = (y_prob_test > 0.5).astype(int)
+
+    st.subheader("📊 Model Performance")
+    st.write(f"Accuracy: **{accuracy_score(y_test, y_pred_test):.4f}**")
+    st.write(f"Precision: **{precision_score(y_test, y_pred_test, zero_division=0):.4f}**")
+    st.write(f"Recall: **{recall_score(y_test, y_pred_test, zero_division=0):.4f}**")
+    st.write(f"F1-score: **{f1_score(y_test, y_pred_test, zero_division=0):.4f}**")
+    st.write("Confusion Matrix:")
+    st.write(confusion_matrix(y_test, y_pred_test))
+
+    # --------------------------------------------------
+    # Predict on FULL Dataset
+    # --------------------------------------------------
+    X_scaled_full = scaler.transform(X)
+    y_prob_full = model.predict_proba(X_scaled_full)[:, 1]
+    y_pred_full = (y_prob_full > 0.5).astype(int)
+
+    output_df = pd.DataFrame({
+        "transaction_id": transaction_ids,
+        "prediction": np.where(y_pred_full == 1, "Fraud", "Not Fraud"),
+        "fraud_probability": y_prob_full
+    })
+
+    output_df["risk"] = np.where(
+        output_df["fraud_probability"] > 0.7, "High ⚠️", "Low ✅"
+    )
+
+    output_df["Select"] = False
+
+    # --------------------------------------------------
+    # Interactive Prediction Table
+    # --------------------------------------------------
+    st.subheader("🔍 Prediction Table")
+
+    edited_df = st.data_editor(
+        output_df,
+        use_container_width=True,
+        disabled=["transaction_id", "prediction", "fraud_probability", "risk"]
+    )
+
+    selected = edited_df[edited_df["Select"] == True]
+
+    if not selected.empty:
+        row = selected.iloc[0]
+        st.success(
+            f"""
+            **Transaction ID:** {row['transaction_id']}  
+            **Prediction:** {row['prediction']}  
+            **Fraud Probability:** {row['fraud_probability']:.2f}  
+            **Risk Level:** {row['risk']}
+            """
         )
 
-        # --------------------------------------------------
-        # Scaling
-        # --------------------------------------------------
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
+    # --------------------------------------------------
+    # Download Results
+    # --------------------------------------------------
+    csv = output_df.drop(columns=["Select"]).to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇️ Download fraud_predictions.csv",
+        csv,
+        "fraud_predictions.csv",
+        "text/csv"
+    )
 
-        # --------------------------------------------------
-        # Train Model
-        # --------------------------------------------------
-        model = LogisticRegression(class_weight="balanced", max_iter=1000)
-        model.fit(X_train, y_train)
-
-        # --------------------------------------------------
-        # Metrics
-        # --------------------------------------------------
-        y_prob_test = model.predict_proba(X_test)[:, 1]
-        y_pred_test = (y_prob_test > 0.5).astype(int)
-
-        st.subheader("📊 Model Performance")
-        st.write(f"Accuracy: **{accuracy_score(y_test, y_pred_test):.4f}**")
-        st.write(f"Precision: **{precision_score(y_test, y_pred_test, zero_division=0):.4f}**")
-        st.write(f"Recall: **{recall_score(y_test, y_pred_test, zero_division=0):.4f}**")
-        st.write(f"F1-score: **{f1_score(y_test, y_pred_test, zero_division=0):.4f}**")
-        st.write("Confusion Matrix:")
-        st.write(confusion_matrix(y_test, y_pred_test))
-
-        # --------------------------------------------------
-        # Predict on FULL Dataset
-        # --------------------------------------------------
-        X_scaled_full = scaler.transform(X)
-        y_prob_full = model.predict_proba(X_scaled_full)[:, 1]
-        y_pred_full = (y_prob_full > 0.5).astype(int)
-
-        output_df = pd.DataFrame({
-            "transaction_id": transaction_ids,
-            "prediction": np.where(y_pred_full == 1, "Fraud", "Not Fraud"),
-            "fraud_probability": y_prob_full
-        })
-
-        output_df["risk"] = np.where(
-            output_df["fraud_probability"] > 0.7, "High ⚠️", "Low ✅"
-        )
-
-        # Add selection column
-        output_df["Select"] = False
-
-        # Sort for demo polish
-        #output_df = output_df.sort_values("fraud_probability", ascending=False)
-
-        # --------------------------------------------------
-        # INTERACTIVE TABLE
-        # --------------------------------------------------
-        st.subheader("🔍 Prediction Table (Click a row)")
-
-        edited_df = st.data_editor(
-            output_df,
-            use_container_width=True,
-            disabled=["transaction_id", "prediction", "fraud_probability", "risk"],
-        )
-
-        # --------------------------------------------------
-        # Show details for selected row
-        # --------------------------------------------------
-        selected = edited_df[edited_df["Select"] == True]
-
-        if not selected.empty:
-            row = selected.iloc[0]
-            st.success(
-                f"""
-                **Transaction ID:** {row['transaction_id']}  
-                **Prediction:** {row['prediction']}  
-                **Fraud Probability:** {row['fraud_probability']:.2f}  
-                **Risk Level:** {row['risk']}
-                """
-            )
-
-        # --------------------------------------------------
-        # Download
-        # --------------------------------------------------
-        csv = output_df.drop(columns=["Select"]).to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "⬇️ Download fraud_predictions.csv",
-            csv,
-            "fraud_predictions.csv",
-            "text/csv"
-        )
-
-    except Exception as e:
-        st.error("❌ Error processing file.")
-        st.write(e)
+except Exception as e:
+    st.error("❌ Error processing file.")
+    st.write(e)
